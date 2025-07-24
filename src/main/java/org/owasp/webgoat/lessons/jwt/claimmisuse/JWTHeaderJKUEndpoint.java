@@ -15,6 +15,7 @@ import com.auth0.jwt.exceptions.JWTVerificationException;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.security.interfaces.RSAPublicKey;
+import java.util.Set;
 import org.apache.commons.lang3.StringUtils;
 import org.owasp.webgoat.container.assignments.AssignmentEndpoint;
 import org.owasp.webgoat.container.assignments.AssignmentHints;
@@ -37,6 +38,21 @@ import org.springframework.web.bind.annotation.RestController;
 })
 public class JWTHeaderJKUEndpoint implements AssignmentEndpoint {
 
+  // Allowlist of approved hosts for JKU URLs to prevent SSRF
+  private static final Set<String> ALLOWED_HOSTS = Set.of(
+    "localhost",
+    "127.0.0.1",
+    "webgoat.local"
+  );
+
+  /**
+   * Validates that the JKU URL uses an approved host to prevent SSRF attacks
+   */
+  private boolean isAllowedJkuUrl(String jkuUrl) throws MalformedURLException {
+    URL url = new URL(jkuUrl);
+    return ALLOWED_HOSTS.contains(url.getHost());
+  }
+
   @PostMapping("jku/follow/{user}")
   public @ResponseBody String follow(@PathVariable("user") String user) {
     if ("Jerry".equals(user)) {
@@ -54,7 +70,14 @@ public class JWTHeaderJKUEndpoint implements AssignmentEndpoint {
       try {
         var decodedJWT = JWT.decode(token);
         var jku = decodedJWT.getHeaderClaim("jku");
-        var jwkProvider = new JwkProviderBuilder(new URL(jku.asString())).build();
+        String jkuUrl = jku.asString();
+        
+        // Validate JKU URL against allowlist to prevent SSRF
+        if (!isAllowedJkuUrl(jkuUrl)) {
+          return failed(this).feedback("jwt-invalid-token").output("JKU URL not allowed").build();
+        }
+        
+        var jwkProvider = new JwkProviderBuilder(new URL(jkuUrl)).build();
         var jwk = jwkProvider.get(decodedJWT.getKeyId());
         var algorithm = Algorithm.RSA256((RSAPublicKey) jwk.getPublicKey());
         JWT.require(algorithm).build().verify(decodedJWT);
