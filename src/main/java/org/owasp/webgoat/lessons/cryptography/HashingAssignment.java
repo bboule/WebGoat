@@ -8,8 +8,12 @@ import static org.owasp.webgoat.container.assignments.AttackResultBuilder.failed
 import static org.owasp.webgoat.container.assignments.AttackResultBuilder.success;
 
 import jakarta.servlet.http.HttpServletRequest;
+import java.security.InvalidKeyException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 import java.util.Random;
 import javax.xml.bind.DatatypeConverter;
 import org.owasp.webgoat.container.assignments.AssignmentEndpoint;
@@ -29,16 +33,21 @@ public class HashingAssignment implements AssignmentEndpoint {
 
   @RequestMapping(path = "/crypto/hashing/md5", produces = MediaType.TEXT_HTML_VALUE)
   @ResponseBody
-  public String getMd5(HttpServletRequest request) throws NoSuchAlgorithmException {
+  public String getMd5(HttpServletRequest request) throws NoSuchAlgorithmException, InvalidKeyException {
 
     String md5Hash = (String) request.getSession().getAttribute("md5Hash");
     if (md5Hash == null) {
 
       String secret = SECRETS[new Random().nextInt(SECRETS.length)];
 
-      MessageDigest md = MessageDigest.getInstance("MD5");
-      md.update(secret.getBytes());
-      byte[] digest = md.digest();
+      // Generate a secure random key for HMAC
+      byte[] keyBytes = new byte[32]; // 256-bit key
+      new SecureRandom().nextBytes(keyBytes);
+      SecretKeySpec keySpec = new SecretKeySpec(keyBytes, "HmacSHA256");
+      
+      Mac mac = Mac.getInstance("HmacSHA256");
+      mac.init(keySpec);
+      byte[] digest = mac.doFinal(secret.getBytes());
       md5Hash = DatatypeConverter.printHexBinary(digest).toUpperCase();
       request.getSession().setAttribute("md5Hash", md5Hash);
       request.getSession().setAttribute("md5Secret", secret);
